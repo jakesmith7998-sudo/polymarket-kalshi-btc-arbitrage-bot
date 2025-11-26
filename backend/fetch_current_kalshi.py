@@ -36,54 +36,73 @@ def parse_strike(subtitle):
         return float(match.group(1).replace(',', ''))
     return 0.0
 
+def fetch_kalshi_data_struct():
+    """
+    Fetches current Kalshi markets and returns a list of market dictionaries.
+    """
+    try:
+        # Get current market info
+        market_info = get_current_market_urls()
+        kalshi_url = market_info["kalshi"]
+        
+        # Extract event ticker from URL
+        event_ticker = kalshi_url.split("/")[-1].upper()
+        
+        # Fetch Current BTC Price
+        current_price, err = get_binance_current_price()
+        
+        # Fetch Kalshi Markets
+        markets, err = get_kalshi_markets(event_ticker)
+        if err:
+            return None, f"Kalshi Error: {err}"
+            
+        if not markets:
+            return [], None
+            
+        # Parse strikes and sort
+        market_data = []
+        for m in markets:
+            strike = parse_strike(m.get('subtitle', ''))
+            if strike > 0:
+                market_data.append({
+                    'strike': strike,
+                    'yes_bid': m.get('yes_bid', 0),
+                    'yes_ask': m.get('yes_ask', 0),
+                    'no_bid': m.get('no_bid', 0),
+                    'no_ask': m.get('no_ask', 0),
+                    'subtitle': m.get('subtitle')
+                })
+                
+        # Sort by strike price
+        market_data.sort(key=lambda x: x['strike'])
+        
+        return {
+            "event_ticker": event_ticker,
+            "current_price": current_price,
+            "markets": market_data
+        }, None
+        
+    except Exception as e:
+        return None, str(e)
+
 def main():
-    # Get current market info
-    market_info = get_current_market_urls()
-    kalshi_url = market_info["kalshi"]
+    data, err = fetch_kalshi_data_struct()
     
-    # Extract event ticker from URL
-    # URL: https://kalshi.com/markets/kxbtcd/bitcoin-price-abovebelow/kxbtcd-25nov2614
-    # Ticker: kxbtcd-25nov2614
-    event_ticker = kalshi_url.split("/")[-1].upper()
-    
-    print(f"Fetching data for Event: {event_ticker}")
-    
-    # Fetch Current BTC Price
-    current_price, err = get_binance_current_price()
     if err:
-        print(f"Error fetching BTC price: {err}")
+        print(f"Error: {err}")
         return
         
-    print(f"CURRENT PRICE: ${current_price:,.2f}")
+    print(f"Fetching data for Event: {data['event_ticker']}")
+    if data['current_price']:
+        print(f"CURRENT PRICE: ${data['current_price']:,.2f}")
     
-    # Fetch Kalshi Markets
-    markets, err = get_kalshi_markets(event_ticker)
-    if err:
-        print(f"Error fetching Kalshi markets: {err}")
-        return
-        
-    if not markets:
+    market_data = data['markets']
+    if not market_data:
         print("No markets found.")
         return
-        
-    # Parse strikes and sort
-    market_data = []
-    for m in markets:
-        strike = parse_strike(m.get('subtitle', ''))
-        if strike > 0:
-            market_data.append({
-                'strike': strike,
-                'yes_bid': m.get('yes_bid', 0),
-                'yes_ask': m.get('yes_ask', 0),
-                'no_bid': m.get('no_bid', 0),
-                'no_ask': m.get('no_ask', 0),
-                'subtitle': m.get('subtitle')
-            })
-            
-    # Sort by strike price
-    market_data.sort(key=lambda x: x['strike'])
-    
-    # Find the market closest to current price
+
+    # Find the market closest to current price for display
+    current_price = data['current_price'] or 0
     closest_idx = 0
     min_diff = float('inf')
     
@@ -93,13 +112,10 @@ def main():
             min_diff = diff
             closest_idx = i
             
-    # Select 3 markets: closest, one below, one above (or just 3 around closest)
-    # If closest is index i, take i-1, i, i+1
-    
+    # Select 3 markets
     start_idx = max(0, closest_idx - 1)
     end_idx = min(len(market_data), start_idx + 3)
     
-    # Adjust if near end
     if end_idx - start_idx < 3 and start_idx > 0:
         start_idx = max(0, end_idx - 3)
         
@@ -109,10 +125,6 @@ def main():
     print("-" * 30)
     for i, m in enumerate(selected_markets):
         print(f"PRICE TO BEAT {i+1}: {m['subtitle']}")
-        # Prices are in cents, convert to dollars for display? User image shows "Yes 56c".
-        # I'll print as is (cents) or formatted.
-        # "BUY YES PRICE 1, BUY NO PRICE 1"
-        # Buy Yes = Yes Ask. Buy No = No Ask.
         print(f"BUY YES PRICE {i+1}: {m['yes_ask']}c, BUY NO PRICE {i+1}: {m['no_ask']}c")
         print()
 

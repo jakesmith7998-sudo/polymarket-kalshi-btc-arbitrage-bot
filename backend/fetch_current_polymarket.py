@@ -112,48 +112,62 @@ def get_binance_open_price(target_time_utc):
     except Exception as e:
         return None, str(e)
 
-def main():
-    # Get current market info
-    market_info = get_current_market_urls()
-    polymarket_url = market_info["polymarket"]
-    target_time_utc = market_info["target_time_utc"]
-    
-    # Extract slug from URL
-    # URL format: https://polymarket.com/event/[slug]
-    slug = polymarket_url.split("/")[-1]
-    
-    print(f"Fetching data for: {slug}")
-    print(f"Target Time (UTC): {target_time_utc}")
-    print("-" * 50)
-
+def fetch_polymarket_data_struct():
+    """
+    Fetches current Polymarket data and returns a structured dictionary.
+    """
     try:
+        # Get current market info
+        market_info = get_current_market_urls()
+        polymarket_url = market_info["polymarket"]
+        target_time_utc = market_info["target_time_utc"]
+        
+        # Extract slug from URL
+        slug = polymarket_url.split("/")[-1]
+        
         # Fetch Data
         poly_prices, poly_err = get_polymarket_data(slug)
         current_price, curr_err = get_binance_current_price()
         price_to_beat, beat_err = get_binance_open_price(target_time_utc)
         
-        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        # print(f"[{timestamp}]") # Timestamp might not be needed for single run, but keeping it is fine.
-        
-        if beat_err:
-            print(f"PRICE TO BEAT: Error ({beat_err})")
-        else:
-            print(f"PRICE TO BEAT: ${price_to_beat:,.2f}")
-
-        if curr_err:
-            print(f"CURRENT PRICE: Error ({curr_err})")
-        else:
-            print(f"CURRENT PRICE: ${current_price:,.2f}")
-        
         if poly_err:
-            print(f"BUY: Error ({poly_err})")
-        else:
-            up_price = poly_prices.get("Up", 0)
-            down_price = poly_prices.get("Down", 0)
-            print(f"BUY: UP ${up_price:.3f} & DOWN ${down_price:.3f}")
+            return None, f"Polymarket Error: {poly_err}"
+            
+        return {
+            "price_to_beat": price_to_beat,
+            "current_price": current_price,
+            "prices": poly_prices, # {'Up': 0.xx, 'Down': 0.xx}
+            "slug": slug,
+            "target_time_utc": target_time_utc
+        }, None
         
     except Exception as e:
-        print(f"Unexpected Error: {e}")
+        return None, str(e)
+
+def main():
+    data, err = fetch_polymarket_data_struct()
+    
+    if err:
+        print(f"Error: {err}")
+        return
+
+    print(f"Fetching data for: {data['slug']}")
+    print(f"Target Time (UTC): {data['target_time_utc']}")
+    print("-" * 50)
+    
+    if data['price_to_beat'] is None:
+         print("PRICE TO BEAT: Error")
+    else:
+        print(f"PRICE TO BEAT: ${data['price_to_beat']:,.2f}")
+
+    if data['current_price'] is None:
+        print("CURRENT PRICE: Error")
+    else:
+        print(f"CURRENT PRICE: ${data['current_price']:,.2f}")
+    
+    up_price = data['prices'].get("Up", 0)
+    down_price = data['prices'].get("Down", 0)
+    print(f"BUY: UP ${up_price:.3f} & DOWN ${down_price:.3f}")
 
 if __name__ == "__main__":
     main()

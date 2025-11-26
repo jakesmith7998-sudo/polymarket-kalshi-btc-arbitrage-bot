@@ -1,132 +1,95 @@
-Aquí tienes todos los ejemplos y fórmulas en formato Markdown, listos para copiar y usar.
+# The Arbitrage Thesis
+
+This document explains the theoretical foundation behind the **PolyKalshi Arbitrage Bot**. It details how we can mathematically guarantee a risk-free profit (arbitrage) by exploiting price discrepancies between two prediction markets: **Polymarket** and **Kalshi**.
+
+## 1. The Markets: Binary Options
+
+Both Polymarket and Kalshi trade **binary options**. These are contracts that pay out exactly **$1.00** if an event happens ("Yes" or "Up") and **$0.00** if it does not ("No" or "Down").
+
+Because the payout is fixed at $1.00, the price of a contract (e.g., $0.60) represents the market's implied probability of the event occurring (60%).
+
+### Polymarket Structure
+-   **Up**: Pays $1 if Price $\ge$ Strike.
+-   **Down**: Pays $1 if Price $<$ Strike.
+-   **Relation**: Cost(Up) + Cost(Down) $\approx$ $1.00 (ignoring fees/spread).
+
+### Kalshi Structure
+-   **Yes**: Pays $1 if Price $\ge$ Strike.
+-   **No**: Pays $1 if Price $<$ Strike.
+-   **Relation**: Cost(Yes) + Cost(No) $\approx$ $1.00.
+
+## 2. The Arbitrage Opportunity
+
+Arbitrage exists when we can construct a portfolio of positions across both markets such that:
+1.  **Minimum Payout**: We are guaranteed to receive at least **$1.00** regardless of the outcome.
+2.  **Total Cost**: The cost to buy this portfolio is **less than $1.00**.
+
+If both conditions are met, we have a risk-free profit:
+$$ \text{Profit} = \$1.00 - \text{Total Cost} $$
+
+## 3. The Strategies
+
+We compare the **Strike Prices** of the two markets to find overlapping coverage.
+
+### Scenario A: Polymarket Strike > Kalshi Strike
+*Example: Poly Strike = \$90,000 | Kalshi Strike = \$89,000*
+
+We buy:
+1.  **Polymarket DOWN** (Wins if Price < \$90,000)
+2.  **Kalshi YES** (Wins if Price $\ge$ \$89,000)
+
+**Outcome Analysis:**
+-   **Price < \$89,000**:
+    -   Poly Down: **WINS** ($1.00)
+    -   Kalshi Yes: LOSES ($0.00)
+    -   **Total Payout: $1.00**
+-   **Price $\ge$ \$90,000**:
+    -   Poly Down: LOSES ($0.00)
+    -   Kalshi Yes: **WINS** ($1.00)
+    -   **Total Payout: $1.00**
+-   **Price between \$89,000 and \$90,000** (The "Middle"):
+    -   Poly Down: **WINS** ($1.00)
+    -   Kalshi Yes: **WINS** ($1.00)
+    -   **Total Payout: $2.00**
+
+**Conclusion**: The *minimum* payout is $1.00. If we can buy (Poly Down + Kalshi Yes) for **less than $1.00**, we make a guaranteed profit. If the price lands in the middle, we double our money.
 
 ---
 
-# Arbitrage entre dos plataformas
+### Scenario B: Polymarket Strike < Kalshi Strike
+*Example: Poly Strike = \$89,000 | Kalshi Strike = \$90,000*
 
-### Fórmulas y ejemplos con (C = 100€)
+We buy:
+1.  **Polymarket UP** (Wins if Price $\ge$ \$89,000)
+2.  **Kalshi NO** (Wins if Price < \$90,000)
 
-## Fórmulas básicas
+**Outcome Analysis:**
+-   **Price < \$89,000**:
+    -   Poly Up: LOSES ($0.00)
+    -   Kalshi No: **WINS** ($1.00)
+    -   **Total Payout: $1.00**
+-   **Price $\ge$ \$90,000**:
+    -   Poly Up: **WINS** ($1.00)
+    -   Kalshi No: LOSES ($0.00)
+    -   **Total Payout: $1.00**
+-   **Price between \$89,000 and \$90,000**:
+    -   Poly Up: **WINS** ($1.00)
+    -   Kalshi No: **WINS** ($1.00)
+    -   **Total Payout: $2.00**
 
-* Precios:
+**Conclusion**: Similar to Scenario A, the minimum payout is $1.00. If Cost(Poly Up + Kalshi No) < $1.00, it is a risk-free trade.
 
-  * (p_A): precio del “Sí” en plataforma A
-  * (p_B): precio del “No” en plataforma B
+## 4. Execution
 
-* Condición de arbitraje:
-  [
-  p_A + p_B < 1
-  ]
+The bot automates this process:
+1.  Fetches live prices for the current hourly market on both platforms.
+2.  Identifies the relevant strike prices.
+3.  Checks the cost of the "Middle" strategies described above.
+4.  Alerts if `Total Cost < $1.00`.
 
-* Stakes óptimos:
-  [
-  x = y = \frac{C}{p_A + p_B}
-  ]
-
-* Ganancia asegurada:
-  [
-  \text{profit} = C \cdot \frac{1 - p_A - p_B}{p_A + p_B}
-  ]
-
----
-
-# Ejemplo 1
-
-* (p_A = 0.47)
-* (p_B = 0.48)
-
-### Cálculos
-
-[
-p_A + p_B = 0.95 < 1
-]
-
-[
-x = y = \frac{100}{0.95} = 105.2632
-]
-
-**Costes**
-
-* “Sí”:
-  [
-  105.2632 \cdot 0.47 = 49.4737€
-  ]
-* “No”:
-  [
-  105.2632 \cdot 0.48 = 50.5263€
-  ]
-
-**Ganancia segura**
-[
-100 \cdot \frac{1 - 0.95}{0.95} = 5.2632€
-]
-
----
-
-# Ejemplo 2
-
-* (p_A = 0.35)
-* (p_B = 0.55)
-
-### Cálculos
-
-[
-p_A + p_B = 0.90 < 1
-]
-
-[
-x = y = \frac{100}{0.90} = 111.1111
-]
-
-**Costes**
-
-* “Sí”:
-  [
-  111.1111 \cdot 0.35 = 38.8889€
-  ]
-* “No”:
-  [
-  111.1111 \cdot 0.55 = 61.1111€
-  ]
-
-**Ganancia segura**
-[
-100 \cdot \frac{1 - 0.90}{0.90} = 11.1111€
-]
-
----
-
-# Ejemplo 3
-
-* (p_A = 0.62)
-* (p_B = 0.30)
-
-### Cálculos
-
-[
-p_A + p_B = 0.92 < 1
-]
-
-[
-x = y = \frac{100}{0.92} = 108.6957
-]
-
-**Costes**
-
-* “Sí”:
-  [
-  108.6957 \cdot 0.62 = 67.3913€
-  ]
-* “No”:
-  [
-  108.6957 \cdot 0.30 = 32.6087€
-  ]
-
-**Ganancia segura**
-[
-100 \cdot \frac{1 - 0.92}{0.92} = 8.6957€
-]
-
----
-
-Si quieres, te genero una plantilla en Markdown para pegar tus propios precios de Polymarket y Kalshi y que puedas hacer los cálculos al instante.
+## 5. Risks (The "Risk-Free" Caveats)
+While mathematically sound, practical risks exist:
+-   **Execution Risk**: Prices might change between buying leg 1 and leg 2.
+-   **Liquidity Risk**: Not enough depth to fill the order at the displayed price.
+-   **Platform Risk**: One exchange goes down or halts trading.
+-   **Fees**: Trading fees (if any) must be accounted for in the cost calculation.
