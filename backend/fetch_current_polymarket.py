@@ -1,14 +1,16 @@
 import requests
 import datetime
 import pytz
-from find_new_market import get_current_market_slug # Import the single-market function
+from find_new_market import get_current_market_slug
 
 # API Configuration
-POLYMARKET_API_URL = "https://gamma-api.polymarket.com/events"
-CLOB_API_URL = "https://clob.polymarket.com/book"
+POLYMARKET_API_URL = "https://gamma-api.polymarket.com/events  "
+CLOB_API_URL = "https://clob.polymarket.com/book  "
 
 def get_clob_price(token_id):
-    """Fetches the best BUY price (Ask) and best SELL price (Bid)."""
+    """
+    Fetches the best BUY price (Ask) and best SELL price (Bid).
+    """
     try:
         response = requests.get(CLOB_API_URL, params={"token_id": token_id})
         response.raise_for_status()
@@ -25,12 +27,14 @@ def get_clob_price(token_id):
             
         return best_bid, best_ask
     except Exception as e:
-        # print(f"CLOB Error for {token_id}: {e}") # Commented out for cleaner output
+        print(f"CLOB Error for {token_id}: {e}")
         return None, None
 
 def fetch_polymarket_data_struct():
-    """Orchestrates fetching the current 15-minute market, tokens, and prices."""
-    slug = get_current_market_slug() # <-- Always gets the nearest 15-minute market
+    """
+    Orchestrates fetching the current market slug, resolving tokens, and getting prices.
+    """
+    slug = get_current_market_slug()
     
     try:
         # 1. Get Event Details
@@ -50,6 +54,7 @@ def fetch_polymarket_data_struct():
             return None, "Market does not have exactly 2 outcomes"
 
         # 2. Get Prices for YES (Up) and NO (Down)
+        # Returns simple price dict for API compatibility
         prices = {}
         market_slug = slug
         
