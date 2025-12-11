@@ -1,17 +1,14 @@
 import requests
 import datetime
 import pytz
-from find_new_market import get_market_slug # We only need the core function to generate slugs
+from find_new_market import get_current_market_slug # Import the single-market function
 
 # API Configuration
 POLYMARKET_API_URL = "https://gamma-api.polymarket.com/events"
 CLOB_API_URL = "https://clob.polymarket.com/book"
 
 def get_clob_price(token_id):
-    """
-    Fetches the best BUY price (Ask) and best SELL price (Bid).
-    (This function remains unchanged)
-    """
+    """Fetches the best BUY price (Ask) and best SELL price (Bid)."""
     try:
         response = requests.get(CLOB_API_URL, params={"token_id": token_id})
         response.raise_for_status()
@@ -28,15 +25,12 @@ def get_clob_price(token_id):
             
         return best_bid, best_ask
     except Exception as e:
-        # print(f"CLOB Error for {token_id}: {e}") # Keep this line commented unless debugging
+        # print(f"CLOB Error for {token_id}: {e}") # Commented out for cleaner output
         return None, None
 
-def fetch_polymarket_data_struct(slug_override=None): # <-- ARGUMENT ADDED HERE
-    """
-    Orchestrates fetching the current market slug, resolving tokens, and getting prices.
-    """
-    # Use the provided slug if available, otherwise default to the 1-hour slug
-    slug = slug_override if slug_override else get_market_slug(60) 
+def fetch_polymarket_data_struct():
+    """Orchestrates fetching the current 15-minute market, tokens, and prices."""
+    slug = get_current_market_slug() # <-- Always gets the nearest 15-minute market
     
     try:
         # 1. Get Event Details
@@ -48,7 +42,6 @@ def fetch_polymarket_data_struct(slug_override=None): # <-- ARGUMENT ADDED HERE
         if not data:
             return None, "Empty data response"
 
-        # The structure is often data[0]['markets'][0]
         market = data[0]['markets'][0]
         clob_token_ids = eval(market.get("clobTokenIds", "[]"))
         outcomes = eval(market.get("outcomes", "[]")) 
