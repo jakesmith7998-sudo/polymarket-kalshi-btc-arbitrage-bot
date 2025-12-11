@@ -133,24 +133,16 @@ app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"], # Allow all for dev
-    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-@app.get("/arbitrage")
-def get_arbitrage_data():
-    # Fetch Data
-    poly_data, poly_err = fetch_polymarket_data_struct()
-    kalshi_data, kalshi_err = fetch_kalshi_data_struct()
-    
-    response = {
 # Global Simulation Instance
 sim = StrategySimulator()
 latest_market_data = None
 last_action = "Waiting for market..."
-}
+
 # Background Task
 async def run_simulation_loop():
     global latest_market_data, last_action
@@ -171,19 +163,18 @@ async def run_simulation_loop():
 async def startup_event():
     asyncio.create_task(run_simulation_loop())
 
-@app.get("/simulation")
-def get_simulation_state():
-    state = sim.get_state()
-    return {
-        "timestamp": datetime.datetime.now().isoformat(),
+@app.get("/arbitrage")
+def get_arbitrage_data():
+    # Fetch Data
+    poly_data, poly_err = fetch_polymarket_data_struct()
+    kalshi_data, kalshi_err = fetch_kalshi_data_struct()
+    
+    response = {
         "polymarket": poly_data,
         "kalshi": kalshi_data,
         "checks": [],
         "opportunities": [],
         "errors": []
-        "market": latest_market_data,
-        "portfolio": state,
-        "last_action": last_action
     }
     
     if poly_err:
@@ -301,6 +292,17 @@ def get_simulation_state():
         response["checks"].append(check_data)
         
     return response
+
+@app.get("/simulation")
+def get_simulation_state():
+    state = sim.get_state()
+    return {
+        "timestamp": datetime.datetime.now().isoformat(),
+        "market": latest_market_data,
+        "portfolio": state,
+        "last_action": last_action
+    }
+    
 @app.post("/reset")
 def reset_simulation():
     global sim
@@ -309,3 +311,4 @@ def reset_simulation():
 
 if __name__ == "__main__":
     import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
