@@ -1,61 +1,119 @@
-import datetime
-import pytz
-
-# Base URL for Polymarket events
-BASE_URL = "https://polymarket.com/event/"
-
-def generate_slug(target_time):
-    """
+ """
     Generates the Polymarket event slug for a given datetime.
-    Format: bitcoin-up-or-down-[month]-[day]-[hour][minutes][am/pm]-et
-    Example: bitcoin-up-or-down-december-12-215pm-et
+    Format: bitcoin-up-or-down-[month]-[day]-[hour][am/pm]-et
+    Example: bitcoin-up-or-down-november-26-1pm-et
     """
+    # Ensure time is in Eastern Time
     et_tz = pytz.timezone('US/Eastern')
     if target_time.tzinfo is None:
+        # Assume UTC if no timezone is provided, then convert to ET
         target_time = pytz.utc.localize(target_time).astimezone(et_tz)
     else:
         target_time = target_time.astimezone(et_tz)
 
+    # Format components
     month = target_time.strftime("%B").lower()
     day = target_time.day
-    hour_int = int(target_time.strftime("%I"))  # 12-hour format
+    
+    # Hour formatting: 12-hour format with am/pm, lowercase, no leading zero for single digits
+    # Hour formatting: 12-hour format with am/pm (e.g., 2pm, 11am)
+    hour_int = int(target_time.strftime("%I"))
     am_pm = target_time.strftime("%p").lower()
-    minutes = target_time.strftime("%M")       # Include minutes
 
-    # Format slug for 15-min intervals: e.g., 215pm, 230pm, 245pm, 300pm (for 3:00)
-    # Polymarket might use 00 for :00, otherwise include the minutes
-    if minutes == "00":
-        return f"bitcoin-up-or-down-{month}-{day}-{hour_int}{am_pm}-et"
-    else:
-        return f"bitcoin-up-or-down-{month}-{day}-{hour_int}{minutes}{am_pm}-et"
+    slug = f"bitcoin-up-or-down-{month}-{day}-{hour_int}{am_pm}-et"
+    return slug
+    return f"bitcoin-up-or-down-{month}-{day}-{hour_int}{am_pm}-et"
 
+def generate_market_url(target_time):
+    """
+    Generates the full Polymarket URL for a given datetime.
+    """
+    slug = generate_slug(target_time)
+    return f"{BASE_URL}{slug}"
+    return f"{BASE_URL}{generate_slug(target_time)}"
 
+def get_next_market_urls(num_hours=5):
 def get_current_market_slug():
     """
-    Returns the slug for the NEAREST resolving 15-minute market.
-    Rounds up to the next 15-minute mark.
+    Generates URLs for the next 'num_hours' hourly markets.
+    Returns the slug for the NEAREST resolving market (next hour top).
+    """
+    urls = []
+    now = datetime.datetime.now(pytz.utc)
+    
+    # Start from the next full hour
+    # Round up to the next hour
+    next_hour = now.replace(minute=0, second=0, microsecond=0) + datetime.timedelta(hours=1)
+    
+    for i in range(num_hours):
+        target_time = next_hour + datetime.timedelta(hours=i)
+        urls.append(generate_market_url(target_time))
+        
+    return urls
+
+def get_current_market_url():
+    """
+    Determines the URL for the 'current' necessary market based on the current time.
+    Logic: If it's 12:30 PM, the market resolving/relevant is likely the 1 PM one.
     """
     now = datetime.datetime.now(pytz.utc)
+    
+    # If we are in the current hour (e.g., 12:30), the "current" market is usually the one ending at the next hour (1:00).
+    # Based on the user's example: "november-26-1pm-et"
+    # If the user wants the market for the "next hour", we target the top of the next hour.
+    
+    next_hour = now.replace(minute=0, second=0, microsecond=0) + datetime.timedelta(hours=1)
+    return generate_market_url(next_hour)
+
+def generate_urls_until_year_end():
+    """
+    Generates URLs for every hour from now until Jan 1, 2026.
+    Saves them to 'market_urls_2025.txt'.
+    """
+    urls = []
+    now = datetime.datetime.now(pytz.utc)
+    
+    # Start from the next full hour
+    current_target = now.replace(minute=0, second=0, microsecond=0) + datetime.timedelta(hours=1)
+    
+    # End date: Jan 1, 2026 00:00 UTC (approx, depends on ET)
+    # Let's just go until the year changes in ET
     et_tz = pytz.timezone('US/Eastern')
-    now_et = now.astimezone(et_tz)
-
-    # Calculate minutes past the hour
-    current_minute = now_et.minute
-    current_second = now_et.second
-
-    # Determine the next 15-minute mark
-    # Intervals: 00, 15, 30, 45
-    target_minute = ((current_minute // 15) + 1) * 15
-
-    if target_minute >= 60:  # Handle hour/day rollover
-        target_time = now_et.replace(minute=target_minute, second=0, microsecond=0) + datetime.timedelta(hours=1)
-        target_time = target_time.replace(minute=0)
-    else:
-        target_time = now_et.replace(minute=target_minute, second=0, microsecond=0)
-
-    return generate_slug(target_time)
-
+    
+    print(f"Generating URLs starting from: {current_target.astimezone(et_tz)}")
+    
+    while True:
+        # Check if we reached 2026 in ET
+        et_time = current_target.astimezone(et_tz)
+        if et_time.year >= 2026:
+            break
+            
+        urls.append(generate_market_url(current_target))
+        current_target += datetime.timedelta(hours=1)
+        
+    with open("market_urls_2025.txt", "w") as f:
+        for url in urls:
+            f.write(url + "\n")
+            
+    print(f"Generated {len(urls)} URLs and saved to 'market_urls_2025.txt'")
+    return generate_slug(next_hour)
 
 if __name__ == "__main__":
-    print(f"Nearest 15-min Target Slug: {get_current_market_slug()}")
-    print(f"Target Time (ET): {datetime.datetime.now(pytz.utc).astimezone(pytz.timezone('US/Eastern')) + datetime.timedelta(minutes=15 - datetime.datetime.now(pytz.timezone('US/Eastern')).minute % 15)}")
+    print("--- Polymarket URL Generator ---")
+    
+    # Test with the user's specific example time to verify logic
+    # User example: bitcoin-up-or-down-november-26-1pm-et
+    # This corresponds to Nov 26, 1 PM ET.
+    
+    et_tz = pytz.timezone('US/Eastern')
+    test_time = et_tz.localize(datetime.datetime(2025, 11, 26, 13, 0, 0))
+    print(f"Test Time (ET): {test_time}")
+    print(f"Generated URL: {generate_market_url(test_time)}")
+    
+    print("\n--- Current Market URL ---")
+    print(f"Current Time (UTC): {datetime.datetime.now(pytz.utc)}")
+    print(f"Current Market URL: {get_current_market_url()}")
+    
+    print("\n--- Generating URLs until 2026 ---")
+    generate_urls_until_year_end()
+    print(f"Current Target Slug: {get_current_market_slug()}")
