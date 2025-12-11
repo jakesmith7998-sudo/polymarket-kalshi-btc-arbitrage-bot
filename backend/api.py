@@ -5,7 +5,7 @@ import asyncio
 import datetime
 import numpy as np
 
-# --- STRATEGY LOGIC (StrategySimulator class remains unchanged) ---
+# --- STRATEGY LOGIC ---
 class StrategySimulator:
     def __init__(self):
         # Portfolio State
@@ -51,7 +51,7 @@ class StrategySimulator:
         price_yes = market_data['prices'].get('Up')
         price_no = market_data['prices'].get('Down')
         
-        if price_yes is None or price_no is None:  
+        if price_yes is None or price_no is None: 
             return "No liquidity"
 
         # Update Price History
@@ -146,16 +146,8 @@ async def run_simulation_loop():
     global latest_market_data, last_action
     while True:
         try:
-            # Fetches the single, current 15-minute market data
-            data, err = fetch_polymarket_data_struct() 
+            data, err = fetch_polymarket_data_struct()
             if data:
-                # Check for market rollover (based on slug)
-                if latest_market_data and data['slug'] != latest_market_data['slug']:
-                    # Reset the simulation state for the new market
-                    global sim
-                    sim = StrategySimulator()
-                    print(f"Market Rollover detected. New market: {data['slug']}. Simulation reset.")
-                    
                 latest_market_data = data
                 action = sim.tick(data)
                 last_action = action
