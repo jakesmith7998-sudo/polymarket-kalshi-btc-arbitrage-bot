@@ -1,13 +1,11 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fetch_current_polymarket import fetch_polymarket_data_struct
-from find_new_market import get_active_market_slugs # <-- NEW IMPORT
 import asyncio
 import datetime
 import numpy as np
 
 # --- STRATEGY LOGIC (StrategySimulator class remains unchanged) ---
-# ... (Keep the StrategySimulator class exactly as it was) ...
 class StrategySimulator:
     def __init__(self):
         # Portfolio State
@@ -126,7 +124,6 @@ class StrategySimulator:
             "locked_profit": self.locked_profit,
             "history": self.history[-10:]
         }
-# --------------------------------------------------------------------------
 
 # --- FASTAPI APP ---
 app = FastAPI()
@@ -139,93 +136,55 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Global State Dictionary to hold both markets
-market_state = {
-    "1hr": {
-        "sim": StrategySimulator(),
-        "market_data": None,
-        "last_action": "Waiting for market...",
-        "slug": ""
-    },
-    "15min": {
-        "sim": StrategySimulator(),
-        "market_data": None,
-        "last_action": "Waiting for market...",
-        "slug": ""
-    }
-}
+# Global Simulation Instance
+sim = StrategySimulator()
+latest_market_data = None
+last_action = "Waiting for market..."
 
-# Background Task for a specific market type
-async def run_market_loop(market_key):
-    global market_state
-    
-    # 1. Get the initial slugs
-    slugs = get_active_market_slugs()
-    market_state[market_key]["slug"] = slugs[market_key]
-    
+# Background Task
+async def run_simulation_loop():
+    global latest_market_data, last_action
     while True:
         try:
-            # 2. Fetch data for the market's current slug
-            data, err = fetch_polymarket_data_struct(slug_override=market_state[market_key]["slug"]) # fetch_polymarket_data_struct must be modified to accept a slug_override
-            
+            # Fetches the single, current 15-minute market data
+            data, err = fetch_polymarket_data_struct() 
             if data:
-                market_state[market_key]["market_data"] = data
-                
-                # 3. Run the strategy tick
-                action = market_state[market_key]["sim"].tick(data)
-                market_state[market_key]["last_action"] = action
+                # Check for market rollover (based on slug)
+                if latest_market_data and data['slug'] != latest_market_data['slug']:
+                    # Reset the simulation state for the new market
+                    global sim
+                    sim = StrategySimulator()
+                    print(f"Market Rollover detected. New market: {data['slug']}. Simulation reset.")
+                    
+                latest_market_data = data
+                action = sim.tick(data)
+                last_action = action
             else:
-                print(f"{market_key} Fetch error: {err}")
-                
-            # 4. Check if the market has resolved (by checking the time) or if a new market has appeared
-            current_slug = market_state[market_key]["slug"]
-            new_slugs = get_active_market_slugs()
-            new_target_slug = new_slugs[market_key]
-            
-            if current_slug != new_target_slug:
-                print(f"Market Rollover: {market_key} from {current_slug} to {new_target_slug}")
-                market_state[market_key]["slug"] = new_target_slug
-                market_state[market_key]["sim"] = StrategySimulator() # Reset simulation for new market
-            
+                print(f"Fetch error: {err}")
         except Exception as e:
-            print(f"Loop error for {market_key}: {e}")
-            
-        await asyncio.sleep(2) # Fetch every 2 seconds
+            print(f"Loop error: {e}")
+        await asyncio.sleep(2)
 
 @app.on_event("startup")
 async def startup_event():
-    # Start both loops
-    asyncio.create_task(run_market_loop("1hr"))
-    asyncio.create_task(run_market_loop("15min"))
+    asyncio.create_task(run_simulation_loop())
 
 @app.get("/simulation")
 def get_simulation_state():
-    # Return the entire state object
+    state = sim.get_state()
     return {
         "timestamp": datetime.datetime.now().isoformat(),
-        "1hr": {
-            "market": market_state["1hr"]["market_data"],
-            "portfolio": market_state["1hr"]["sim"].get_state(),
-            "last_action": market_state["1hr"]["last_action"],
-            "slug": market_state["1hr"]["slug"]
-        },
-        "15min": {
-            "market": market_state["15min"]["market_data"],
-            "portfolio": market_state["15min"]["sim"].get_state(),
-            "last_action": market_state["15min"]["last_action"],
-            "slug": market_state["15min"]["slug"]
-        }
+        "market": latest_market_data,
+        "portfolio": state,
+        "last_action": last_action
     }
 
-@app.post("/reset/{market_key}")
-def reset_simulation(market_key: str):
-    global market_state
-    if market_key in market_state:
-        market_state[market_key]["sim"] = StrategySimulator()
-        return {"message": f"Simulation for {market_key} reset"}
-    return {"message": "Invalid market key", "status": 400}
+@app.post("/reset")
+def reset_simulation():
+    global sim
+    sim = StrategySimulator()
+    return {"message": "Simulation reset"}
 
 if __name__ == "__main__":
     import uvicorn
-    # Make sure to run the app with the correct entry point
-    uvicorn.run("api:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run(app, host="0.0.0.0", port=8000)
