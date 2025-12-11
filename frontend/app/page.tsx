@@ -15,11 +15,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { RotateCcw, TrendingUp, DollarSign } from "lucide-react";
 
-type MarketKey = "1hr" | "15min";
-
 export default function Dashboard() {
-  const [allData, setAllData] = useState<any>(null);
-  const [activeMarket, setActiveMarket] = useState<MarketKey>("1hr"); // <-- New state for market view
+  const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -27,7 +24,7 @@ export default function Dashboard() {
       fetch("http://localhost:8000/simulation")
         .then((res) => res.json())
         .then((data) => {
-          setAllData(data);
+          setData(data);
           setLoading(false);
         })
         .catch((err) => console.error(err));
@@ -36,10 +33,10 @@ export default function Dashboard() {
   }, []);
 
   const handleReset = async () => {
-    await fetch(`http://localhost:8000/reset/${activeMarket}`, { method: "POST" });
+    await fetch("http://localhost:8000/reset", { method: "POST" });
   };
 
-  if (loading || !allData || !allData[activeMarket]?.market) {
+  if (loading || !data || !data.market) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-zinc-950 text-white">
         <div className="text-xl animate-pulse">Initializing Gabagool Strategy...</div>
@@ -47,7 +44,7 @@ export default function Dashboard() {
     );
   }
 
-  const { market, portfolio, last_action, slug } = allData[activeMarket];
+  const { market, portfolio, last_action } = data;
   
   const yesPrice = market.prices?.Up || 0;
   const noPrice = market.prices?.Down || 0;
@@ -61,27 +58,9 @@ export default function Dashboard() {
           <h1 className="text-3xl font-bold bg-gradient-to-r from-emerald-400 to-cyan-400 bg-clip-text text-transparent">
             Gabagool Arbitrage Bot
           </h1>
-          <p className="text-zinc-400 mt-1">
-            {activeMarket === "1hr" ? "60m" : "15m"} Timeframe • Asymmetric Accumulation Strategy
-          </p>
+          <p className="text-zinc-400 mt-1">15m Timeframe • Asymmetric Accumulation Strategy</p>
         </div>
         <div className="flex items-center gap-4">
-          {/* MARKET TOGGLE BUTTONS */}
-          <Button 
-            variant={activeMarket === "1hr" ? "default" : "outline"} 
-            onClick={() => setActiveMarket("1hr")}
-            className={activeMarket === "1hr" ? "bg-blue-600 hover:bg-blue-700" : "border-zinc-700 text-zinc-400 hover:bg-zinc-800"}
-          >
-            1-Hour Market
-          </Button>
-          <Button 
-            variant={activeMarket === "15min" ? "default" : "outline"} 
-            onClick={() => setActiveMarket("15min")}
-            className={activeMarket === "15min" ? "bg-blue-600 hover:bg-blue-700" : "border-zinc-700 text-zinc-400 hover:bg-zinc-800"}
-          >
-            15-Min Market
-          </Button>
-          
           <Badge variant="outline" className="text-zinc-400 border-zinc-700 px-3 py-1">
             Status: <span className="text-emerald-400 ml-2">RUNNING</span>
           </Badge>
@@ -96,7 +75,7 @@ export default function Dashboard() {
         <Card className="lg:col-span-2 bg-zinc-900 border-zinc-800">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-lg font-medium text-zinc-200">Active Market</CardTitle>
-            <Badge className="bg-blue-900/50 text-blue-200 border-blue-800">{slug}</Badge>
+            <Badge className="bg-blue-900/50 text-blue-200 border-blue-800">{market.slug}</Badge>
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-2 gap-4 mt-2">
@@ -139,7 +118,7 @@ export default function Dashboard() {
 
         {/* PORTFOLIO STATE */}
         <Card className="lg:col-span-3 bg-zinc-900 border-zinc-800">
-            <CardHeader><CardTitle className="text-zinc-200 flex items-center gap-2"><DollarSign className="w-5 h-5 text-purple-400"/> Inventory ({activeMarket === "1hr" ? "1-Hour" : "15-Minute"})</CardTitle></CardHeader>
+            <CardHeader><CardTitle className="text-zinc-200 flex items-center gap-2"><DollarSign className="w-5 h-5 text-purple-400"/> Inventory</CardTitle></CardHeader>
             <CardContent>
                 <Table>
                     <TableHeader>
@@ -170,7 +149,7 @@ export default function Dashboard() {
 
         {/* TRADE HISTORY */}
         <Card className="lg:col-span-3 bg-zinc-900 border-zinc-800">
-            <CardHeader><CardTitle className="text-zinc-200 flex items-center gap-2"><TrendingUp className="w-5 h-5 text-blue-400"/> Live Trade Simulation ({activeMarket === "1hr" ? "1-Hour" : "15-Minute"})</CardTitle></CardHeader>
+            <CardHeader><CardTitle className="text-zinc-200 flex items-center gap-2"><TrendingUp className="w-5 h-5 text-blue-400"/> Live Trade Simulation</CardTitle></CardHeader>
             <CardContent>
                 <Table>
                     <TableHeader>
