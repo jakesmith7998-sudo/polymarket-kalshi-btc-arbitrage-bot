@@ -13,12 +13,12 @@ class StrategySimulator:
         self.qty_no = 0
         self.total_cost_yes = 0.0
         self.total_cost_no = 0.0
-        
+
         # Strategy Parameters
-        self.buy_size = 10  
-        self.safety_margin = 0.99 
-        self.window_size = 10 
-        
+        self.buy_size = 10
+        self.safety_margin = 0.99
+        self.window_size = 10
+
         # History
         self.price_history_yes = []
         self.price_history_no = []
@@ -50,8 +50,8 @@ class StrategySimulator:
         # Map 'Up' -> YES, 'Down' -> NO
         price_yes = market_data['prices'].get('Up')
         price_no = market_data['prices'].get('Down')
-        
-        if price_yes is None or price_no is None: 
+
+        if price_yes is None or price_no is None:
             return "No liquidity"
 
         # Update Price History
@@ -62,25 +62,25 @@ class StrategySimulator:
             self.price_history_no.pop(0)
 
         action = "Hold"
-        
+
         # 1. Identify "Cheapness" (Dip Buying)
         avg_recent_yes = np.mean(self.price_history_yes)
         avg_recent_no = np.mean(self.price_history_no)
-        
+
         # Buy if price is cheaper than average
-        is_cheap_yes = price_yes < (avg_recent_yes - 0.005) 
+        is_cheap_yes = price_yes < (avg_recent_yes - 0.005)
         is_cheap_no = price_no < (avg_recent_no - 0.005)
-        
+
         # 2. Check Pair Cost Impact
         if is_cheap_yes:
             # Simulate buy
             new_total_cost = self.total_cost_yes + (price_yes * self.buy_size)
             new_qty = self.qty_yes + self.buy_size
             new_avg = new_total_cost / new_qty
-            
+
             # If we have NO shares, check if this buy keeps pair cost low
             potential_pair_cost = new_avg + self.avg_cost_no if self.qty_no > 0 else 0
-            
+
             # Execute if safe or if establishing position
             if self.qty_no == 0 or potential_pair_cost < self.safety_margin:
                 self._execute_trade("YES", price_yes)
@@ -90,13 +90,13 @@ class StrategySimulator:
             new_total_cost = self.total_cost_no + (price_no * self.buy_size)
             new_qty = self.qty_no + self.buy_size
             new_avg = new_total_cost / new_qty
-            
+
             potential_pair_cost = self.avg_cost_yes + new_avg if self.qty_yes > 0 else 0
-            
+
             if self.qty_yes == 0 or potential_pair_cost < self.safety_margin:
                 self._execute_trade("NO", price_no)
                 action = f"Bought NO @ {price_no:.3f}"
-        
+
         return action
 
     def _execute_trade(self, side, price):
@@ -106,7 +106,7 @@ class StrategySimulator:
         else:
             self.qty_no += self.buy_size
             self.total_cost_no += (price * self.buy_size)
-            
+
         self.history.append({
             "timestamp": datetime.datetime.now().strftime("%H:%M:%S"),
             "side": side,
@@ -155,7 +155,7 @@ async def run_simulation_loop():
                 print(f"Fetch error: {err}")
         except Exception as e:
             print(f"Loop error: {e}")
-        await asyncio.sleep(2)
+        await asyncio.sleep(2) # Increased sleep slightly for stability
 
 @app.on_event("startup")
 async def startup_event():
