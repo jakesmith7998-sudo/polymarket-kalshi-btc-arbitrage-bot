@@ -3,17 +3,14 @@ import pytz
 
 # Base URL for Polymarket events
 BASE_URL = "https://polymarket.com/event/"
+ET_TZ = pytz.timezone('US/Eastern')
 
-def generate_slug(target_time):
-    """
-    Generates the Polymarket event slug for a given datetime.
-    Format: bitcoin-up-or-down-[month]-[day]-[hour][am/pm]-et
-    """
-    et_tz = pytz.timezone('US/Eastern')
+def _format_time(target_time):
+    """Formats the time part of the slug: [month]-[day]-[hour][am/pm]-et"""
     if target_time.tzinfo is None:
-        target_time = pytz.utc.localize(target_time).astimezone(et_tz)
+        target_time = pytz.utc.localize(target_time).astimezone(ET_TZ)
     else:
-        target_time = target_time.astimezone(et_tz)
+        target_time = target_time.astimezone(ET_TZ)
 
     month = target_time.strftime("%B").lower()
     day = target_time.day
@@ -21,19 +18,39 @@ def generate_slug(target_time):
     hour_int = int(target_time.strftime("%I"))
     am_pm = target_time.strftime("%p").lower()
     
-    return f"bitcoin-up-or-down-{month}-{day}-{hour_int}{am_pm}-et"
+    # Check for 15-minute markets by seeing if the minute is non-zero
+    minute_part = f"-{target_time.minute}m" if target_time.minute != 0 else ""
 
-def generate_market_url(target_time):
-    return f"{BASE_URL}{generate_slug(target_time)}"
+    return f"bitcoin-up-or-down-{month}-{day}-{hour_int}{am_pm}{minute_part}-et"
 
-def get_current_market_slug():
-    """
-    Returns the slug for the NEAREST resolving market (next hour top).
-    """
+def get_market_slug(timeframe_minutes):
+    """Returns the slug for the NEAREST resolving market based on the timeframe."""
     now = datetime.datetime.now(pytz.utc)
-    # Round up to the next hour
-    next_hour = now.replace(minute=0, second=0, microsecond=0) + datetime.timedelta(hours=1)
-    return generate_slug(next_hour)
+    
+    if timeframe_minutes == 60: # Hourly Market
+        # Round up to the next hour
+        target_time = now.replace(minute=0, second=0, microsecond=0) + datetime.timedelta(hours=1)
+    elif timeframe_minutes == 15: # 15-Minute Market
+        # Calculate time difference to the nearest 15-minute mark (00, 15, 30, 45)
+        current_minute = now.minute
+        remainder = current_minute % 15
+        minutes_to_add = 15 - remainder
+        
+        target_time = now + datetime.timedelta(minutes=minutes_to_add)
+        target_time = target_time.replace(second=0, microsecond=0)
+    else:
+        raise ValueError("Unsupported timeframe. Use 15 or 60.")
+        
+    return _format_time(target_time)
+
+def get_active_market_slugs():
+    """Returns slugs for both 1-hour and 15-minute markets."""
+    return {
+        "1hr": get_market_slug(60),
+        "15min": get_market_slug(15)
+    }
 
 if __name__ == "__main__":
-    print(f"Current Target Slug: {get_current_market_slug()}")
+    slugs = get_active_market_slugs()
+    print(f"1-Hour Target Slug: {slugs['1hr']}")
+    print(f"15-Minute Target Slug: {slugs['15min']}")
