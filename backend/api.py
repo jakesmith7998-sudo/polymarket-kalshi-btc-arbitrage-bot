@@ -150,7 +150,7 @@ def get_arbitrage_data():
 sim = StrategySimulator()
 latest_market_data = None
 last_action = "Waiting for market..."
-
+}
 # Background Task
 async def run_simulation_loop():
     global latest_market_data, last_action
