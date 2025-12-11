@@ -1,7 +1,7 @@
 import requests
 import datetime
 import pytz
-from find_new_market import get_current_market_slug
+from find_new_market import get_market_slug # We only need the core function to generate slugs
 
 # API Configuration
 POLYMARKET_API_URL = "https://gamma-api.polymarket.com/events"
@@ -10,6 +10,7 @@ CLOB_API_URL = "https://clob.polymarket.com/book"
 def get_clob_price(token_id):
     """
     Fetches the best BUY price (Ask) and best SELL price (Bid).
+    (This function remains unchanged)
     """
     try:
         response = requests.get(CLOB_API_URL, params={"token_id": token_id})
@@ -27,14 +28,15 @@ def get_clob_price(token_id):
             
         return best_bid, best_ask
     except Exception as e:
-        print(f"CLOB Error for {token_id}: {e}")
+        # print(f"CLOB Error for {token_id}: {e}") # Keep this line commented unless debugging
         return None, None
 
-def fetch_polymarket_data_struct():
+def fetch_polymarket_data_struct(slug_override=None): # <-- ARGUMENT ADDED HERE
     """
     Orchestrates fetching the current market slug, resolving tokens, and getting prices.
     """
-    slug = get_current_market_slug()
+    # Use the provided slug if available, otherwise default to the 1-hour slug
+    slug = slug_override if slug_override else get_market_slug(60) 
     
     try:
         # 1. Get Event Details
@@ -46,6 +48,7 @@ def fetch_polymarket_data_struct():
         if not data:
             return None, "Empty data response"
 
+        # The structure is often data[0]['markets'][0]
         market = data[0]['markets'][0]
         clob_token_ids = eval(market.get("clobTokenIds", "[]"))
         outcomes = eval(market.get("outcomes", "[]")) 
@@ -54,7 +57,6 @@ def fetch_polymarket_data_struct():
             return None, "Market does not have exactly 2 outcomes"
 
         # 2. Get Prices for YES (Up) and NO (Down)
-        # Returns simple price dict for API compatibility
         prices = {}
         market_slug = slug
         
