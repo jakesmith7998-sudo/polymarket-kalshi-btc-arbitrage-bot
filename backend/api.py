@@ -19,6 +19,11 @@ class StrategySimulator:
         self.safety_margin = 0.99 
         self.window_size = 10 
         
+        # --- NEW SETTING: DEAD MARKET GUARD ---
+        # If price is below this, we assume the outcome is dead/lost.
+        # We will NOT buy, even if it looks like a "dip".
+        self.min_price_threshold = 0.05  
+        
         # History
         self.price_history_yes = []
         self.price_history_no = []
@@ -71,6 +76,14 @@ class StrategySimulator:
         is_cheap_yes = price_yes < (avg_recent_yes - 0.005) 
         is_cheap_no = price_no < (avg_recent_no - 0.005)
         
+        # --- NEW LOGIC: DEAD MARKET GUARD ---
+        # If the price is too low (e.g. 0.01), it's not a dip, it's a loss.
+        # Force "is_cheap" to False if price < threshold.
+        if price_yes < self.min_price_threshold:
+            is_cheap_yes = False
+        if price_no < self.min_price_threshold:
+            is_cheap_no = False
+        
         # 2. Check Pair Cost Impact
         if is_cheap_yes:
             # Simulate buy
@@ -97,6 +110,10 @@ class StrategySimulator:
                 self._execute_trade("NO", price_no)
                 action = f"Bought NO @ {price_no:.3f}"
         
+        # If we blocked a trade due to low price, maybe update status
+        if action == "Hold" and (price_yes < self.min_price_threshold or price_no < self.min_price_threshold):
+            return "Market Resolved (Price too low)"
+
         return action
 
     def _execute_trade(self, side, price):
@@ -148,6 +165,12 @@ async def run_simulation_loop():
         try:
             data, err = fetch_polymarket_data_struct()
             if data:
+                # Check for market rollover
+                if latest_market_data and data['slug'] != latest_market_data['slug']:
+                    global sim
+                    sim = StrategySimulator()
+                    print(f"Market Rollover detected. New market: {data['slug']}. Simulation reset.")
+                    
                 latest_market_data = data
                 action = sim.tick(data)
                 last_action = action
