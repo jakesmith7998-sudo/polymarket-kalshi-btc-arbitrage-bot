@@ -10,6 +10,7 @@ def generate_slug(target_time):
     Format: bitcoin-up-or-down-[month]-[day]-[hour][am/pm]-et
     """
     et_tz = pytz.timezone('US/Eastern')
+    # Ensure target_time is in ET
     if target_time.tzinfo is None:
         target_time = pytz.utc.localize(target_time).astimezone(et_tz)
     else:
@@ -28,12 +29,20 @@ def generate_market_url(target_time):
 
 def get_current_market_slug():
     """
-    Returns the slug for the NEAREST resolving market (next hour top).
+    Returns the slug for the CURRENT hour (Round Down).
+    Example: If it is 7:05 PM, this returns the 7pm slug.
     """
-    now = datetime.datetime.now(pytz.utc)
-    # Round up to the next hour
-    next_hour = now.replace(minute=0, second=0, microsecond=0) + datetime.timedelta(hours=1)
-    return generate_slug(next_hour)
+    et_tz = pytz.timezone('US/Eastern')
+    now_et = datetime.datetime.now(et_tz)
+    
+    # Logic: Take current ET time and simply zero out the minutes.
+    # This "rounds down" to the top of the current hour.
+    current_hour_top = now_et.replace(minute=0, second=0, microsecond=0)
+    
+    return generate_slug(current_hour_top)
 
 if __name__ == "__main__":
-    print(f"Current Target Slug: {get_current_market_slug()}")
+    # Run this file directly to verify the time calculation
+    slug = get_current_market_slug()
+    print(f"Calculated Target Slug: {slug}")
+    print(f"If it is 7:05 PM, this should now say 7pm.")
