@@ -70,6 +70,11 @@ class StrategySimulator:
         # Buy if price is cheaper than average
         is_cheap_yes = price_yes < (avg_recent_yes - 0.005) 
         is_cheap_no = price_no < (avg_recent_no - 0.005)
+
+        # --- ADD THIS LOGIC HERE ---
+        if price_yes < 0.05: is_cheap_yes = False
+        if price_no < 0.05: is_cheap_no = False
+
         
         # 2. Check Pair Cost Impact
         if is_cheap_yes:
