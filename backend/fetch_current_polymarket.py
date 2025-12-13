@@ -6,17 +6,19 @@ POLYMARKET_API_URL = "https://gamma-api.polymarket.com/events"
 CLOB_API_URL = "https://clob.polymarket.com/book"
 
 def get_market_slug():
-    # 1. Get LOCAL system time (EST) - No UTC conversion
+    # 1. Get LOCAL system time (No UTC, matches your PC clock)
     now = datetime.datetime.now()
     
-    # 2. Round up to the next hour (e.g., 9:15 PM -> 10:00 PM)
-    next_hour = now.replace(minute=0, second=0, microsecond=0) + datetime.timedelta(hours=1)
+    # 2. User Rule: "1 hour behind the calculation"
+    # If it is 9:XX PM, we target the 9 PM market (not 10 PM).
+    # We simply take the current hour.
+    target_time = now.replace(minute=0, second=0, microsecond=0)
     
     # 3. Format the slug parts
-    month = next_hour.strftime("%B").lower()  # "december"
-    day = next_hour.day                       # 12
-    hour_int = int(next_hour.strftime("%I"))  # 10 (12-hour format)
-    am_pm = next_hour.strftime("%p").lower()  # "pm"
+    month = target_time.strftime("%B").lower()  # e.g., "december"
+    day = target_time.day                       # e.g., 12
+    hour_int = int(target_time.strftime("%I"))  # e.g., 9 (12-hour format)
+    am_pm = target_time.strftime("%p").lower()  # e.g., "pm"
     
     # 4. Construct Slug
     slug = f"bitcoin-up-or-down-{month}-{day}-{hour_int}{am_pm}-et"
