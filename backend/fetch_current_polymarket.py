@@ -1,43 +1,68 @@
 import requests
 import datetime
 import pytz
-from find_new_market import get_current_market_slug
 
 # API Configuration
 POLYMARKET_API_URL = "https://gamma-api.polymarket.com/events"
 CLOB_API_URL = "https://clob.polymarket.com/book"
 
+def get_market_slug():
+    """
+    Returns the slug for the NEAREST resolving market (next hour top).
+    """
+    now = datetime.datetime.now(pytz.utc)
+    next_hour = now.replace(minute=0, second=0, microsecond=0) + datetime.timedelta(hours=1)
+    
+    month = next_hour.strftime("%B").lower()
+    day = next_hour.day
+    hour_int = int(next_hour.strftime("%I"))
+    am_pm = next_hour.strftime("%p").lower()
+    
+    return f"bitcoin-up-or-down-{month}-{day}-{hour_int}{am_pm}-et"
+
 def get_clob_price(token_id):
     """
-    Fetches the best BUY price (Ask) and best SELL price (Bid).
+    Fetches price with a safety fallback.
+    1. Try getting the lowest SELL price (Ask).
+    2. If no sellers, try getting the highest BUY price (Bid).
+    3. If neither, assume 0.
     """
     try:
         response = requests.get(CLOB_API_URL, params={"token_id": token_id})
-        response.raise_for_status()
         data = response.json()
         
         bids = data.get('bids', [])
         asks = data.get('asks', [])
         
-        # Best Ask (Lowest seller) - This is the price we BUY at
-        best_ask = min(float(a['price']) for a in asks) if asks else None
+        best_ask = None
+        best_bid = None
+
+        if asks:
+            best_ask = min(float(a['price']) for a in asks)
         
-        # Best Bid (Highest buyer) - This is the price we SELL at
-        best_bid = max(float(b['price']) for b in bids) if bids else None
+        if bids:
+            best_bid = max(float(b['price']) for b in bids)
+
+        # --- THE FIX: SMART PRICING ---
+        # If we can buy it (Ask exists), use Ask.
+        if best_ask is not None:
+            return best_ask
+        
+        # If no one is selling (Ask is empty), maybe it's because it's worth $1.00?
+        # Check the Bid. If Bid is high (e.g. 0.99), use that.
+        if best_bid is not None:
+            return best_bid
             
-        return best_bid, best_ask
+        return 0.0
+        
     except Exception as e:
-        # print(f"CLOB Error for {token_id}: {e}")
-        return None, None
+        print(f"CLOB Error for {token_id}: {e}")
+        return 0.0
 
 def fetch_polymarket_data_struct():
-    """
-    Orchestrates fetching the current market slug, resolving tokens, and getting prices.
-    """
-    slug = get_current_market_slug()
+    slug = get_market_slug()
     
     try:
-        # 1. Get Event Details
         response = requests.get(POLYMARKET_API_URL, params={"slug": slug})
         if response.status_code != 200:
             return None, f"Event not found: {slug}"
@@ -53,23 +78,21 @@ def fetch_polymarket_data_struct():
         if len(clob_token_ids) != 2:
             return None, "Market does not have exactly 2 outcomes"
 
-        # 2. Get Prices for YES (Up) and NO (Down)
-        # Returns simple price dict for API compatibility
         prices = {}
-        market_slug = slug
-        
         for idx, outcome in enumerate(outcomes):
             token_id = clob_token_ids[idx]
-            bid, ask = get_clob_price(token_id)
-            # We use ASK price because we are BUYING
-            prices[outcome] = ask if ask is not None else 0.0
+            price = get_clob_price(token_id)
+            prices[outcome] = price
             
-        # Return structure compatible with api.py
         return {
-            "prices": prices, # {'Up': 0.xx, 'Down': 0.xx}
-            "slug": market_slug,
-            "target_time_utc": datetime.datetime.now().isoformat() # Placeholder
+            "prices": prices,
+            "slug": slug,
+            "target_time_utc": datetime.datetime.now().isoformat()
         }, None
 
     except Exception as e:
         return None, str(e)
+
+if __name__ == "__main__":
+    data, err = fetch_polymarket_data_struct()
+    print(data)
