@@ -6,24 +6,23 @@ import datetime
 import numpy as np
 
 # --- GLOBAL MEMORY ---
-# This variable sits outside the class so it survives resets.
-DAILY_BANKED_PROFIT = 0.0
+# We store the running balance here so it persists across resets.
+GLOBAL_BALANCE = 10.00 
 
 class StrategySimulator:
-    def __init__(self):
+    def __init__(self, starting_balance):
         # Portfolio State
-        self.qty_yes = 0
-        self.qty_no = 0
+        self.cash_balance = starting_balance  # Starts with $10 (or whatever is passed)
+        self.qty_yes = 0.0
+        self.qty_no = 0.0
         self.total_cost_yes = 0.0
         self.total_cost_no = 0.0
         
         # --- FIXED BUY SIZE ---
-        self.buy_size = 0.05  # Buys exactly 0.05 shares per trade
+        self.buy_size = 0.05  # 0.05 shares per trade
         
         self.safety_margin = 0.99 
         self.window_size = 10 
-        
-        # Dead Market Guard
         self.min_price_threshold = 0.05  
         
         # History
@@ -45,11 +44,18 @@ class StrategySimulator:
 
     @property
     def locked_profit(self):
-        # This calculates profit ONLY for the current active run
+        # Profit locked in specifically from arbitrage pairs
         matched_pairs = min(self.qty_yes, self.qty_no)
         if matched_pairs == 0: return 0.0
         cost_of_pairs = matched_pairs * self.pair_cost
         return matched_pairs - cost_of_pairs
+
+    @property
+    def total_equity(self):
+        # Cash + Value of Locked Pairs (Conservative Estimate)
+        # We value unmatched shares at 0 for safety, matched pairs at $1.00
+        matched_pairs = min(self.qty_yes, self.qty_no)
+        return self.cash_balance + matched_pairs
 
     def tick(self, market_data):
         if not market_data or 'prices' not in market_data:
@@ -77,45 +83,46 @@ class StrategySimulator:
         is_cheap_yes = price_yes < (avg_recent_yes - 0.005) 
         is_cheap_no = price_no < (avg_recent_no - 0.005)
         
-        # Dead Market Guard
         if price_yes < self.min_price_threshold: is_cheap_yes = False
         if price_no < self.min_price_threshold: is_cheap_no = False
         
         # 2. Check Pair Cost Impact
         if is_cheap_yes:
-            new_total_cost = self.total_cost_yes + (price_yes * self.buy_size)
-            new_qty = self.qty_yes + self.buy_size
-            new_avg = new_total_cost / new_qty
-            
-            potential_pair_cost = new_avg + self.avg_cost_no if self.qty_no > 0 else 0
-            
-            if self.qty_no == 0 or potential_pair_cost < self.safety_margin:
-                self._execute_trade("YES", price_yes)
-                action = f"Bought YES @ {price_yes:.3f}"
+            cost = price_yes * self.buy_size
+            # --- CRITICAL: BALANCE CHECK ---
+            if self.cash_balance >= cost:
+                potential_pair_cost = ((self.total_cost_yes + cost)/(self.qty_yes + self.buy_size)) + self.avg_cost_no if self.qty_no > 0 else 0
+                
+                if self.qty_no == 0 or potential_pair_cost < self.safety_margin:
+                    self._execute_trade("YES", price_yes, cost)
+                    action = f"Bought YES @ {price_yes:.3f}"
+            else:
+                action = "Insufficient Funds"
 
         elif is_cheap_no:
-            new_total_cost = self.total_cost_no + (price_no * self.buy_size)
-            new_qty = self.qty_no + self.buy_size
-            new_avg = new_total_cost / new_qty
-            
-            potential_pair_cost = self.avg_cost_yes + new_avg if self.qty_yes > 0 else 0
-            
-            if self.qty_yes == 0 or potential_pair_cost < self.safety_margin:
-                self._execute_trade("NO", price_no)
-                action = f"Bought NO @ {price_no:.3f}"
+            cost = price_no * self.buy_size
+            # --- CRITICAL: BALANCE CHECK ---
+            if self.cash_balance >= cost:
+                potential_pair_cost = self.avg_cost_yes + ((self.total_cost_no + cost)/(self.qty_no + self.buy_size)) if self.qty_yes > 0 else 0
+                
+                if self.qty_yes == 0 or potential_pair_cost < self.safety_margin:
+                    self._execute_trade("NO", price_no, cost)
+                    action = f"Bought NO @ {price_no:.3f}"
+            else:
+                action = "Insufficient Funds"
         
-        if action == "Hold" and (price_yes < self.min_price_threshold or price_no < self.min_price_threshold):
-            return "Market Resolved (Price too low)"
-
         return action
 
-    def _execute_trade(self, side, price):
+    def _execute_trade(self, side, price, cost):
+        # Deduct Cash
+        self.cash_balance -= cost
+        
         if side == "YES":
             self.qty_yes += self.buy_size
-            self.total_cost_yes += (price * self.buy_size)
+            self.total_cost_yes += cost
         else:
             self.qty_no += self.buy_size
-            self.total_cost_no += (price * self.buy_size)
+            self.total_cost_no += cost
             
         self.history.append({
             "timestamp": datetime.datetime.now().strftime("%H:%M:%S"),
@@ -126,12 +133,14 @@ class StrategySimulator:
 
     def get_state(self):
         return {
+            "cash_balance": round(self.cash_balance, 4), # NEW FIELD
+            "total_equity": round(self.total_equity, 4), # NEW FIELD
             "qty_yes": round(self.qty_yes, 3),
             "qty_no": round(self.qty_no, 3),
             "avg_cost_yes": self.avg_cost_yes,
             "avg_cost_no": self.avg_cost_no,
             "pair_cost": self.pair_cost,
-            "locked_profit": self.locked_profit, # This is just current run
+            "locked_profit": self.locked_profit,
             "history": self.history[-10:]
         }
 
@@ -146,27 +155,33 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Global Simulation Instance
-sim = StrategySimulator()
+# Initialize Global Sim with $10.00
+sim = StrategySimulator(starting_balance=GLOBAL_BALANCE)
 latest_market_data = None
 last_action = "Waiting for market..."
 
-# Background Task
 async def run_simulation_loop():
-    global latest_market_data, last_action, sim, DAILY_BANKED_PROFIT
+    global latest_market_data, last_action, sim, GLOBAL_BALANCE
     while True:
         try:
             data, err = fetch_polymarket_data_struct()
             if data:
-                # Check for market rollover (Hourly)
+                # ROLLOVER LOGIC (Hourly Reset)
                 if latest_market_data and data['slug'] != latest_market_data['slug']:
-                    print(f"Market Rollover detected. New market: {data['slug']}.")
+                    print(f"Market Rollover detected: {data['slug']}")
                     
-                    # 1. Bank the profit from the run
-                    DAILY_BANKED_PROFIT += sim.locked_profit
+                    # 1. CALCULATE PAYOUT
+                    # Matches pay $1.00. Unmatched shares expire worthless ($0).
+                    payout = min(sim.qty_yes, sim.qty_no) * 1.00
                     
-                    # 2. Reset the bot (Wipes history & inventory)
-                    sim = StrategySimulator()
+                    # 2. UPDATE GLOBAL BALANCE
+                    # New Balance = Leftover Cash + Payout
+                    GLOBAL_BALANCE = sim.cash_balance + payout
+                    
+                    print(f"Round Ended. Payout: ${payout:.2f}. New Balance: ${GLOBAL_BALANCE:.2f}")
+
+                    # 3. RESTART BOT WITH NEW BALANCE
+                    sim = StrategySimulator(starting_balance=GLOBAL_BALANCE)
                     
                 latest_market_data = data
                 action = sim.tick(data)
@@ -183,32 +198,22 @@ async def startup_event():
 
 @app.get("/simulation")
 def get_simulation_state():
-    state = sim.get_state()
-    
-    # --- THE TRICK FOR THE DASHBOARD ---
-    # We overwrite 'locked_profit' with the Grand Total (Banked + Current).
-    # This makes the Frontend display the Total Daily Profit automatically.
-    current_run_profit = state['locked_profit']
-    state['locked_profit'] = DAILY_BANKED_PROFIT + current_run_profit
-    
     return {
         "timestamp": datetime.datetime.now().isoformat(),
         "market": latest_market_data,
-        "portfolio": state,
+        "portfolio": sim.get_state(),
         "last_action": last_action
     }
 
 @app.post("/reset")
 def reset_simulation():
-    global sim, DAILY_BANKED_PROFIT
+    global sim, GLOBAL_BALANCE
+    # Manual Reset: Assume we sell/payout immediately
+    payout = min(sim.qty_yes, sim.qty_no) * 1.00
+    GLOBAL_BALANCE = sim.cash_balance + payout
     
-    # When you manually click Reset, we bank the money first.
-    DAILY_BANKED_PROFIT += sim.locked_profit
-    
-    # Then we wipe the bot
-    sim = StrategySimulator()
-    
-    return {"message": "Simulation reset"}
+    sim = StrategySimulator(starting_balance=GLOBAL_BALANCE)
+    return {"message": "Simulation reset", "new_balance": GLOBAL_BALANCE}
 
 if __name__ == "__main__":
     import uvicorn
