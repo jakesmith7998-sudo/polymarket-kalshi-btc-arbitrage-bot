@@ -1,22 +1,21 @@
 import requests
 import datetime
-import pytz
 
 # API Endpoints
 POLYMARKET_API_URL = "https://gamma-api.polymarket.com/events"
 CLOB_API_URL = "https://clob.polymarket.com/book"
 
 def get_market_slug():
-    # 1. Get current time in UTC
-    now = datetime.datetime.now(pytz.utc)
+    # 1. Get LOCAL system time (EST) - No UTC conversion
+    now = datetime.datetime.now()
     
-    # 2. Round up to the next hour (e.g., 2:15 -> 3:00)
+    # 2. Round up to the next hour (e.g., 9:15 PM -> 10:00 PM)
     next_hour = now.replace(minute=0, second=0, microsecond=0) + datetime.timedelta(hours=1)
     
     # 3. Format the slug parts
     month = next_hour.strftime("%B").lower()  # "december"
     day = next_hour.day                       # 12
-    hour_int = int(next_hour.strftime("%I"))  # 3 (12-hour format)
+    hour_int = int(next_hour.strftime("%I"))  # 10 (12-hour format)
     am_pm = next_hour.strftime("%p").lower()  # "pm"
     
     # 4. Construct Slug
