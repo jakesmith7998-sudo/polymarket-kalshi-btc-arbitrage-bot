@@ -6,26 +6,22 @@ import datetime
 import numpy as np
 
 # --- GLOBAL MEMORY ---
-# Stores your money between resets so you don't lose it.
 GLOBAL_BALANCE = 10.00 
 
 class StrategySimulator:
     def __init__(self, starting_balance):
-        # Portfolio State
         self.cash_balance = starting_balance  
         self.qty_yes = 0.0
         self.qty_no = 0.0
         self.total_cost_yes = 0.0
         self.total_cost_no = 0.0
         
-        # --- FIXED BUY SIZE ---
-        self.buy_size = 0.05  # 0.05 shares per trade
-        
+        # --- STRATEGY SETTINGS ---
+        self.buy_size = 0.05  
         self.safety_margin = 0.99 
         self.window_size = 10 
         self.min_price_threshold = 0.05   
         
-        # History
         self.price_history_yes = []
         self.price_history_no = []
         self.history = []
@@ -44,7 +40,6 @@ class StrategySimulator:
 
     @property
     def locked_profit(self):
-        # Profit locked in specifically from arbitrage pairs
         matched_pairs = min(self.qty_yes, self.qty_no)
         if matched_pairs == 0: return 0.0
         cost_of_pairs = matched_pairs * self.pair_cost
@@ -52,26 +47,20 @@ class StrategySimulator:
 
     @property
     def total_equity(self):
-        # --- FIX #1: REALISTIC EQUITY CALCULATION ---
-        # Old way: counted unmatched shares as $0 (Scary drop)
-        # New way: counts unmatched shares at the price you paid (Cost Basis)
-        
+        # Valued at Cost Basis (What you paid)
         val_yes = self.qty_yes * self.avg_cost_yes
         val_no = self.qty_no * self.avg_cost_no
-        
         return self.cash_balance + val_yes + val_no
 
     def tick(self, market_data):
-        if not market_data or 'prices' not in market_data:
-            return "No Data"
+        if not market_data or 'prices' not in market_data: return "No Data"
 
         price_yes = market_data['prices'].get('Up')
         price_no = market_data['prices'].get('Down')
         
-        if price_yes is None or price_no is None:   
-            return "No liquidity"
+        if price_yes is None or price_no is None: return "No liquidity"
 
-        # Update Price History
+        # Update History
         self.price_history_yes.append(price_yes)
         self.price_history_no.append(price_no)
         if len(self.price_history_yes) > self.window_size:
@@ -90,13 +79,11 @@ class StrategySimulator:
         if price_yes < self.min_price_threshold: is_cheap_yes = False
         if price_no < self.min_price_threshold: is_cheap_no = False
         
-        # 2. Check Pair Cost Impact
+        # 2. Check Pair Cost & Balance
         if is_cheap_yes:
             cost = price_yes * self.buy_size
-            # Balance Check
             if self.cash_balance >= cost:
                 potential_pair_cost = ((self.total_cost_yes + cost)/(self.qty_yes + self.buy_size)) + self.avg_cost_no if self.qty_no > 0 else 0
-                
                 if self.qty_no == 0 or potential_pair_cost < self.safety_margin:
                     self._execute_trade("YES", price_yes, cost)
                     action = f"Bought YES @ {price_yes:.3f}"
@@ -105,10 +92,8 @@ class StrategySimulator:
 
         elif is_cheap_no:
             cost = price_no * self.buy_size
-            # Balance Check
             if self.cash_balance >= cost:
                 potential_pair_cost = self.avg_cost_yes + ((self.total_cost_no + cost)/(self.qty_no + self.buy_size)) if self.qty_yes > 0 else 0
-                
                 if self.qty_yes == 0 or potential_pair_cost < self.safety_margin:
                     self._execute_trade("NO", price_no, cost)
                     action = f"Bought NO @ {price_no:.3f}"
@@ -119,7 +104,6 @@ class StrategySimulator:
 
     def _execute_trade(self, side, price, cost):
         self.cash_balance -= cost
-        
         if side == "YES":
             self.qty_yes += self.buy_size
             self.total_cost_yes += cost
@@ -151,14 +135,9 @@ class StrategySimulator:
 app = FastAPI()
 
 app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"],
 )
 
-# Initialize Global Sim
 sim = StrategySimulator(starting_balance=GLOBAL_BALANCE)
 latest_market_data = None
 last_action = "Waiting for market..."
@@ -169,32 +148,39 @@ async def run_simulation_loop():
         try:
             data, err = fetch_polymarket_data_struct()
             if data:
-                # ROLLOVER LOGIC (Hourly Reset)
+                # --- THE HARD WAY: BINARY RESOLUTION ---
                 if latest_market_data and data['slug'] != latest_market_data['slug']:
-                    print(f"🔄 Market Flip Detected: {latest_market_data['slug']} -> {data['slug']}")
+                    print(f"💀 Market Flip: {latest_market_data['slug']} -> {data['slug']}")
                     
-                    # --- FIX #2: LIQUIDATION LOGIC ---
-                    # 1. Matched Pairs pay out exactly $1.00
-                    matched_cnt = min(sim.qty_yes, sim.qty_no)
-                    payout_matched = matched_cnt * 1.00
+                    # 1. Determine the Winner based on the LAST known price
+                    last_price_yes = latest_market_data['prices'].get('Up', 0)
+                    last_price_no = latest_market_data['prices'].get('Down', 0)
                     
-                    # 2. Unmatched shares are "sold" at the last known market price
-                    # (This prevents you from losing 100% of money on unmatched shares)
-                    last_price_yes = latest_market_data['prices'].get('Up', 0.5)
-                    last_price_no = latest_market_data['prices'].get('Down', 0.5)
+                    winner = "NONE"
+                    if last_price_yes > last_price_no: winner = "YES"
+                    elif last_price_no > last_price_yes: winner = "NO"
                     
-                    rem_yes = max(0, sim.qty_yes - matched_cnt)
-                    rem_no = max(0, sim.qty_no - matched_cnt)
+                    print(f"⚖️  Resolution Verdict: {winner} Wins")
+
+                    # 2. Calculate Payout (Binary Logic)
+                    payout = 0.0
                     
-                    payout_unmatched = (rem_yes * last_price_yes) + (rem_no * last_price_no)
+                    if winner == "YES":
+                        # YES pays $1.00. NO pays $0.00.
+                        payout = sim.qty_yes * 1.00
+                        print(f"   - YES Shares Cashed: {sim.qty_yes} x $1.00 = ${payout:.2f}")
+                        print(f"   - NO Shares Burned:  {sim.qty_no} x $0.00 = $0.00")
+                        
+                    elif winner == "NO":
+                        # NO pays $1.00. YES pays $0.00.
+                        payout = sim.qty_no * 1.00
+                        print(f"   - NO Shares Cashed:  {sim.qty_no} x $1.00 = ${payout:.2f}")
+                        print(f"   - YES Shares Burned: {sim.qty_yes} x $0.00 = $0.00")
                     
-                    total_payout = payout_matched + payout_unmatched
+                    # 3. Update Balance
+                    GLOBAL_BALANCE = sim.cash_balance + payout
                     
-                    # 3. Update Global Balance
-                    GLOBAL_BALANCE = sim.cash_balance + total_payout
-                    
-                    print(f"💰 Payout Report: Matched=${payout_matched:.2f}, Unmatched=${payout_unmatched:.2f}")
-                    print(f"✅ New Balance: ${GLOBAL_BALANCE:.2f}")
+                    print(f"🩸 Final Balance: ${GLOBAL_BALANCE:.2f}")
 
                     # 4. Restart Bot
                     sim = StrategySimulator(starting_balance=GLOBAL_BALANCE)
@@ -224,11 +210,7 @@ def get_simulation_state():
 @app.post("/reset")
 def reset_simulation():
     global sim, GLOBAL_BALANCE
-    # Manual Reset: We use the same liquidation logic roughly
-    # Equity = Cash + Value of all shares at Cost
-    # This prevents manual resets from destroying value instantly
     GLOBAL_BALANCE = sim.total_equity 
-    
     sim = StrategySimulator(starting_balance=GLOBAL_BALANCE)
     return {"message": "Simulation reset", "new_balance": GLOBAL_BALANCE}
 
