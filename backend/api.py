@@ -16,7 +16,11 @@ class StrategySimulator:
         self.total_cost_yes = 0.0
         self.total_cost_no = 0.0
         
-        # --- STRATEGY SETTINGS ---
+        # --- LIVE PRICE TRACKING ---
+        self.current_price_yes = 0.0
+        self.current_price_no = 0.0
+        
+        # --- SETTINGS ---
         self.buy_size = 0.05  
         self.safety_margin = 0.99 
         self.window_size = 10 
@@ -47,9 +51,11 @@ class StrategySimulator:
 
     @property
     def total_equity(self):
-        # Valued at Cost Basis (What you paid)
-        val_yes = self.qty_yes * self.avg_cost_yes
-        val_no = self.qty_no * self.avg_cost_no
+        # --- REAL-TIME MARK-TO-MARKET ---
+        # Values your portfolio at the exact current market price.
+        # If the price crashes, your Equity crashes immediately.
+        val_yes = self.qty_yes * self.current_price_yes
+        val_no = self.qty_no * self.current_price_no
         return self.cash_balance + val_yes + val_no
 
     def tick(self, market_data):
@@ -59,6 +65,10 @@ class StrategySimulator:
         price_no = market_data['prices'].get('Down')
         
         if price_yes is None or price_no is None: return "No liquidity"
+
+        # UPDATE LIVE PRICES (For Equity Calculation)
+        self.current_price_yes = price_yes
+        self.current_price_no = price_no
 
         # Update History
         self.price_history_yes.append(price_yes)
@@ -148,11 +158,12 @@ async def run_simulation_loop():
         try:
             data, err = fetch_polymarket_data_struct()
             if data:
-                # --- THE HARD WAY: BINARY RESOLUTION ---
+                # --- THE HARD WAY: BINARY DEATH ---
                 if latest_market_data and data['slug'] != latest_market_data['slug']:
-                    print(f"💀 Market Flip: {latest_market_data['slug']} -> {data['slug']}")
+                    print(f"💀 MARKET ENDED: {latest_market_data['slug']}")
                     
-                    # 1. Determine the Winner based on the LAST known price
+                    # 1. Determine Winner (Based on LAST KNOWN PRICE)
+                    # No guessing. If YES was higher, YES wins.
                     last_price_yes = latest_market_data['prices'].get('Up', 0)
                     last_price_no = latest_market_data['prices'].get('Down', 0)
                     
@@ -160,29 +171,26 @@ async def run_simulation_loop():
                     if last_price_yes > last_price_no: winner = "YES"
                     elif last_price_no > last_price_yes: winner = "NO"
                     
-                    print(f"⚖️  Resolution Verdict: {winner} Wins")
+                    print(f"⚖️  VERDICT: {winner} WINS (YES: {last_price_yes}, NO: {last_price_no})")
 
-                    # 2. Calculate Payout (Binary Logic)
+                    # 2. BINARY PAYOUT (Winner takes $1.00, Loser takes $0.00)
                     payout = 0.0
                     
                     if winner == "YES":
-                        # YES pays $1.00. NO pays $0.00.
                         payout = sim.qty_yes * 1.00
-                        print(f"   - YES Shares Cashed: {sim.qty_yes} x $1.00 = ${payout:.2f}")
-                        print(f"   - NO Shares Burned:  {sim.qty_no} x $0.00 = $0.00")
+                        print(f"   - YES Holdings: {sim.qty_yes} shares -> ${payout:.2f}")
+                        print(f"   - NO Holdings:  {sim.qty_no} shares -> $0.00 (BURNED)")
                         
                     elif winner == "NO":
-                        # NO pays $1.00. YES pays $0.00.
                         payout = sim.qty_no * 1.00
-                        print(f"   - NO Shares Cashed:  {sim.qty_no} x $1.00 = ${payout:.2f}")
-                        print(f"   - YES Shares Burned: {sim.qty_yes} x $0.00 = $0.00")
+                        print(f"   - NO Holdings:  {sim.qty_no} shares -> ${payout:.2f}")
+                        print(f"   - YES Holdings: {sim.qty_yes} shares -> $0.00 (BURNED)")
                     
                     # 3. Update Balance
                     GLOBAL_BALANCE = sim.cash_balance + payout
-                    
-                    print(f"🩸 Final Balance: ${GLOBAL_BALANCE:.2f}")
+                    print(f"🩸 New Global Balance: ${GLOBAL_BALANCE:.2f}")
 
-                    # 4. Restart Bot
+                    # 4. Immediate Restart (No Pausing)
                     sim = StrategySimulator(starting_balance=GLOBAL_BALANCE)
                     
                 latest_market_data = data
@@ -210,6 +218,7 @@ def get_simulation_state():
 @app.post("/reset")
 def reset_simulation():
     global sim, GLOBAL_BALANCE
+    # Manual reset uses equity check to be nice, but hourly reset is brutal.
     GLOBAL_BALANCE = sim.total_equity 
     sim = StrategySimulator(starting_balance=GLOBAL_BALANCE)
     return {"message": "Simulation reset", "new_balance": GLOBAL_BALANCE}
